@@ -4,8 +4,10 @@ import re
 import streamlit as st
 
 # =====================================================================
-# 🔑 CONFIGURATION: PUT YOUR BOTH API KEYS HERE
+# 🔑 CONFIGURATION: SECURELY LOAD API KEYS FROM STREAMLIT SECRETS
 # =====================================================================
+# 彻底移除所有明文密匙。本地运行时它会读取 .streamlit/secrets.toml
+# 云端运行时它会读取 Streamlit Cloud 后台的 Secrets 
 NEWS_API_KEY = st.secrets.get("NEWS_API_KEY", "")
 OPENROUTER_API_KEY = st.secrets.get("OPENROUTER_API_KEY", "")
 # =====================================================================
@@ -36,12 +38,12 @@ if "current_page" not in st.session_state:
 # --- OPENROUTER CLOUD AI PROCESSING ---
 @st.cache_data(show_spinner=False)
 def generate_ai_summary(title, description):
-    if OPENROUTER_API_KEY == "YOUR_ACTUAL_OPENROUTER_KEY" or not OPENROUTER_API_KEY:
-        return "❌ 错误: 请在代码顶部配置您的 `OPENROUTER_API_KEY`！"
+    # ✨ FIXED: 优化了校验逻辑，防止在 Secrets 未正确加载时引发死循环报错
+    if not OPENROUTER_API_KEY:
+        return "❌ 错误: 未能在 Streamlit Secrets 中找到有效的 `OPENROUTER_API_KEY`！请检查云端 Settings 或本地 secrets.toml。"
 
     full_text = f"Title: {title}\nDescription: {description}"
     
-    # Strict prompt instructions to forbid reasoning logs, preambles, and thought blocks
     system_prompt = (
         "你是一位顶级的国际金融与科技行业研究专家。请阅读以下英文新闻，提取核心商业情报。\n"
         "【特别要求】即使该新闻表面上看似与特定公司无关，你也必须推导其潜在的宏观经济传导路径、对整个上下游产业链的影响，或对相关概念板块的潜在干预效应。\n\n"
@@ -67,7 +69,7 @@ def generate_ai_summary(title, description):
             {"role": "user", "content": full_text}
         ],
         "temperature": 0.1,  
-        "max_tokens": 2000    # ✨ FIXED: 大幅提高 Token 限制，彻底解决输出未完成和被截断的问题
+        "max_tokens": 2000    
     }
 
     try:
@@ -86,8 +88,8 @@ def generate_ai_summary(title, description):
 # --- CACHED NEWS FETCH ---
 @st.cache_data(ttl=600)  
 def fetch_live_news():
-    if NEWS_API_KEY == "YOUR_ACTUAL_NEWSAPI_KEY" or not NEWS_API_KEY:
-        st.error("❌ 错误: 请在代码顶部配置您的 `NEWS_API_KEY`！")
+    if not NEWS_API_KEY:
+        st.error("❌ 错误: 未能在 Streamlit Secrets 中找到有效的 `NEWS_API_KEY`！")
         return []
 
     params = {
@@ -184,7 +186,7 @@ def main():
     with col_next:
         if end_idx < total_articles:
             if st.button("Next Page ➡️"):
-                st.session_state.current_page -= 1
+                st.session_state.current_page += 1
                 st.rerun()
 
 if __name__ == "__main__":
