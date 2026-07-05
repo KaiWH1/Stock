@@ -1,0 +1,7 @@
+[development]
+# 彻底关闭 Streamlit 对文件和服务器开发者变动的监控，防止误触清缓存弹窗
+checkForServerChanges = false
+
+[client]
+# 在生产/云端环境下，隐藏非必要的报错和清理细节
+showErrorDetails = false
