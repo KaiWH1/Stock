@@ -6,8 +6,6 @@ import streamlit as st
 # =====================================================================
 # 🔑 CONFIGURATION: SECURELY LOAD API KEYS FROM STREAMLIT SECRETS
 # =====================================================================
-# 彻底移除所有明文密匙。本地运行时它会读取 .streamlit/secrets.toml
-# 云端运行时它会读取 Streamlit Cloud 后台的 Secrets 
 NEWS_API_KEY = st.secrets.get("NEWS_API_KEY", "")
 OPENROUTER_API_KEY = st.secrets.get("OPENROUTER_API_KEY", "")
 # =====================================================================
@@ -18,18 +16,28 @@ OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 st.set_page_config(page_title="AI Market Intelligence Center", layout="wide")
 st.title("📱 Live AI Market Dashboard")
 
-# --- ON-PAGE DISPLAY CONTROLS ---
-col_title, col_select = st.columns([3, 1])
+st.write("Fetching real-time rolling market news and generating structured intelligence insights.")
 
-with col_title:
-    st.write("Fetching real-time rolling market news and generating structured intelligence insights.")
-
-with col_select:
-    max_display_count = st.selectbox(
-        "Articles per page:",
-        options=[1, 3, 5, 10, 15, 20],
-        index=2  # Defaults to 5 articles
-    )
+# --- 📱 移动端友好型控制中心 (MOBILE FRIENDLY CONTROLS) ---
+with st.container(border=True):
+    st.subheader("⚙️ Display Settings")
+    col_input, col_btn = st.columns([2, 1])
+    
+    with col_input:
+        # 1. 默认展示数量设为 1，改用数字输入框，设定范围 1-50
+        max_display_count = st.number_input(
+            "Articles per page:",
+            min_value=1,
+            max_value=50,
+            value=1,
+            step=1
+        )
+    
+    with col_btn:
+        st.write("") # 占位对齐
+        st.write("") 
+        # 2. 显式的“加载/刷新”按钮
+        fetch_clicked = st.button("🔄 Fetch & Refresh News", use_container_width=True)
 
 # Initialize page state tracker
 if "current_page" not in st.session_state:
@@ -38,9 +46,8 @@ if "current_page" not in st.session_state:
 # --- OPENROUTER CLOUD AI PROCESSING ---
 @st.cache_data(show_spinner=False)
 def generate_ai_summary(title, description):
-    # ✨ FIXED: 优化了校验逻辑，防止在 Secrets 未正确加载时引发死循环报错
     if not OPENROUTER_API_KEY:
-        return "❌ 错误: 未能在 Streamlit Secrets 中找到有效的 `OPENROUTER_API_KEY`！请检查云端 Settings 或本地 secrets.toml。"
+        return "❌ 错误: 未能在 Streamlit Secrets 中找到有效的 `OPENROUTER_API_KEY`！"
 
     full_text = f"Title: {title}\nDescription: {description}"
     
@@ -76,12 +83,9 @@ def generate_ai_summary(title, description):
         response = requests.post(OPENROUTER_URL, headers=headers, json=data)
         if response.status_code == 200:
             content = response.json()["choices"][0]["message"]["content"]
-            
-            # --- HARD SANITIZER FOR THINKING TAGS ---
             content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
             return content
-            
-        return f"⚠️ OpenRouter Error: {response.status_code} - {response.text}"
+        return f"⚠️ OpenRouter Error: {response.status_code}"
     except Exception as e:
         return f"⚠️ Pipeline Request Failed: {str(e)}"
 
@@ -109,45 +113,40 @@ def fetch_live_news():
 
 # --- UI MAIN RENDER LOOP ---
 def main():
-    st.caption("⚡ **Live Stream Mode Activated:** Sorting live, rolling coverage from current hour going backward.")
+    # 当点击刷新按钮时，重置页码为 0
+    if fetch_clicked:
+        st.session_state.current_page = 0
+        st.cache_data.clear() # 确保按钮点击时真正拉取最新数据
+
+    st.caption("⚡ **Live Stream Mode Activated:** Sorting live, rolling coverage.")
 
     raw_articles = fetch_live_news()
 
     if not raw_articles:
-        st.info("No matching text feeds returned from primary source APIs. Check API limit parameters or query syntax.")
+        st.info("No matching text feeds returned from primary source APIs.")
         return
 
-    # Clean out placeholder or removed news articles first
     valid_articles = []
     for art in raw_articles:
         url = art.get("url")
         title = art.get("title")
         desc = art.get("description", "")
-        
         if url and title and title != "[Removed]" and desc and len(desc) >= 15:
             valid_articles.append(art)
 
-    # Hard-enforced reverse chronological sort by timestamp strings
-    valid_articles = sorted(
-        valid_articles, 
-        key=lambda x: x.get("publishedAt", ""), 
-        reverse=True
-    )
-
+    valid_articles = sorted(valid_articles, key=lambda x: x.get("publishedAt", ""), reverse=True)
     total_articles = len(valid_articles)
     
-    # Calculate index boundaries for the selected page slice
+    # 动态计算当前页面切片
     start_idx = st.session_state.current_page * max_display_count
     end_idx = start_idx + max_display_count
-    
-    # Extract only the items meant for this specific view window
     page_items = valid_articles[start_idx:end_idx]
 
     if not page_items:
         st.info("No more articles available on this view path.")
         return
 
-    # Render out the specific sliced batch
+    # 渲染单条或多条新闻
     for art in page_items:
         with st.container(border=True):
             col1, col2 = st.columns([3, 1])
@@ -169,12 +168,12 @@ def main():
 
     st.write("---")
     
-    # --- PAGINATION NAVIGATION FOOTER ---
+    # --- PAGINATION ---
     col_prev, col_page_num, col_next = st.columns([1, 2, 1])
     
     with col_prev:
         if st.session_state.current_page > 0:
-            if st.button("⬅️ Previous Page"):
+            if st.button("⬅️ Previous"):
                 st.session_state.current_page -= 1
                 st.rerun()
 
@@ -185,7 +184,7 @@ def main():
 
     with col_next:
         if end_idx < total_articles:
-            if st.button("Next Page ➡️"):
+            if st.button("Next ➡️"):
                 st.session_state.current_page += 1
                 st.rerun()
 
